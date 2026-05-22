@@ -4,18 +4,27 @@ import os
 import json
 import matplotlib.pyplot as plt
 import seaborn as sns
-from src.preprocessing import TextPreprocessor
-from src.feature_extraction import FeatureExtractor
-from src.models import FakeNewsModel
-from src.evaluation import ModelEvaluator
+from preprocessing import TextPreprocessor
+from feature_extraction import FeatureExtractor
+from models import FakeNewsModel
+from evaluation import ModelEvaluator
 
 def main():
-    true_path = 'True copy.csv'
-    fake_path = 'Fake.csv'
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_dir = os.path.dirname(script_dir)
+    
+    true_path = os.path.join(project_dir, 'True copy.csv')
+    if not os.path.exists(true_path):
+        true_path = os.path.join(project_dir, 'True.csv')
+    
+    fake_path = os.path.join(project_dir, 'Fake.csv')
     
     if not os.path.exists(true_path) or not os.path.exists(fake_path):
         print(f"Error: Data files not found!")
-        print("Please ensure both 'True copy.csv' and 'Fake.csv' are in the project directory.")
+        print(f"Looking for:")
+        print(f"  - {os.path.join(project_dir, 'True.csv')} or {os.path.join(project_dir, 'True copy.csv')}")
+        print(f"  - {fake_path}")
+        print("Please ensure both files are in the project directory.")
         return
     
     print("Loading data...")
@@ -46,11 +55,11 @@ def main():
     extractor = FeatureExtractor()
     X_train_features = extractor.fit_transform(X_train)
     X_test_features = extractor.transform(X_test)
-    extractor.save('models/tfidf_vectorizer.joblib')
+    extractor.save(os.path.join(project_dir, 'models', 'tfidf_vectorizer.joblib'))
     
     lr_model = FakeNewsModel(model_type='logistic_regression')
     lr_model.train(X_train_features, y_train)
-    lr_model.save('models/logistic_regression.joblib')
+    lr_model.save(os.path.join(project_dir, 'models', 'logistic_regression.joblib'))
     
     lr_pred = lr_model.predict(X_test_features)
     lr_evaluator = ModelEvaluator(y_test, lr_pred)
@@ -64,7 +73,7 @@ def main():
     print("="*50)
     rf_model = FakeNewsModel(model_type='random_forest')
     rf_model.train(X_train_features, y_train)
-    rf_model.save('models/random_forest.joblib')
+    rf_model.save(os.path.join(project_dir, 'models', 'random_forest.joblib'))
     
     rf_pred = rf_model.predict(X_test_features)
     rf_evaluator = ModelEvaluator(y_test, rf_pred)
@@ -73,7 +82,7 @@ def main():
     for key, value in results['Random Forest'].items():
         print(f"{key}: {value:.4f}")
     
-    with open('models/results.json', 'w') as f:
+    with open(os.path.join(project_dir, 'models', 'results.json'), 'w') as f:
         json.dump(results, f, indent=2)
     
     print("\n" + "="*50)

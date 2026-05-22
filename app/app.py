@@ -3,9 +3,16 @@ import pandas as pd
 import json
 import matplotlib.pyplot as plt
 import seaborn as sns
-from src.preprocessing import TextPreprocessor
-from src.feature_extraction import FeatureExtractor
-from src.models import FakeNewsModel
+import sys
+import os
+
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_dir = os.path.dirname(script_dir)
+sys.path.append(os.path.join(project_dir, 'src'))
+
+from preprocessing import TextPreprocessor
+from feature_extraction import FeatureExtractor
+from models import FakeNewsModel
 
 st.set_page_config(page_title="Fake News Detection", page_icon="📰", layout="wide")
 
@@ -18,17 +25,17 @@ def load_models():
     preprocessor = TextPreprocessor()
     
     extractor = FeatureExtractor()
-    extractor.load('models/tfidf_vectorizer.joblib')
+    extractor.load(os.path.join(project_dir, 'models', 'tfidf_vectorizer.joblib'))
     
     lr_model = FakeNewsModel()
-    lr_model.load('models/logistic_regression.joblib')
+    lr_model.load(os.path.join(project_dir, 'models', 'logistic_regression.joblib'))
     models['Logistic Regression'] = {'model': lr_model, 'extractor': extractor}
     
     rf_model = FakeNewsModel(model_type='random_forest')
-    rf_model.load('models/random_forest.joblib')
+    rf_model.load(os.path.join(project_dir, 'models', 'random_forest.joblib'))
     models['Random Forest'] = {'model': rf_model, 'extractor': extractor}
     
-    with open('models/results.json', 'r') as f:
+    with open(os.path.join(project_dir, 'models', 'results.json'), 'r') as f:
         results = json.load(f)
     
     return preprocessor, models, results
