@@ -1,183 +1,127 @@
-# Fake News Detection using NLP and Machine Learning
 
-[![Python 3.11](https://img.shields.io/badge/Python-3.11-blue)](https://www.python.org/)
-[![Machine Learning](https://img.shields.io/badge/Machine%20Learning-NLP-green)](https://scikit-learn.org/)
-[![Streamlit](https://img.shields.io/badge/UI-Streamlit-red)](https://streamlit.io/)
+# Fake News Detection with NLP and Machine Learning
 
-## 📋 Project Overview
+A text classifier that labels news articles as real or fake, built on the ISOT dataset. The project compares classical machine learning models, adds an optional BiLSTM, and includes an explainability layer and a Streamlit app.
 
-An advanced AI-based Fake News Detection system that uses Natural Language Processing (NLP) and Machine Learning to classify news articles as **Real** or **Fake**. This project demonstrates end-to-end ML workflow including data preprocessing, feature extraction, model training, evaluation, and deployment with a user-friendly web interface.
+It is a learning project. Read the [Limitations](#limitations) section before drawing conclusions from the scores.
 
-## ✨ Features
+## Dataset
 
-- **Multiple Machine Learning Models**: Logistic Regression and Random Forest
-- **NLP Preprocessing**: Text cleaning, stopword removal, lemmatization
-- **TF-IDF Feature Extraction**: Convert text to numerical vectors
-- **Model Comparison**: Side-by-side performance evaluation
-- **Interactive Web App**: Streamlit-based user interface
-- **Performance Metrics**: Accuracy, Precision, Recall, F1-score
-- **Visualizations**: Comprehensive performance charts
+[ISOT Fake News Dataset](https://onlineacademiccommunity.uvic.ca/isot/2022/11/27/fake-news-detection-datasets/): 44,898 articles.
 
-## 📊 Dataset
+| Class | Label | Articles | Source |
+|---|---|---|---|
+| Real | 0 | 21,417 | Reuters.com |
+| Fake | 1 | 23,481 | Unreliable websites |
 
-This project uses the **ISOT Fake News Dataset** which contains:
-- 21,417 real news articles from Reuters.com
-- 23,481 fake news articles from various unreliable sources
-- Total: 44,898 news articles
+The dataset is not included in this repository. Download it and place `True.csv` and `Fake.csv` in the **repository root**.
 
-### Dataset Columns:
-- `title`: News article title
-- `text`: Full article text
-- `subject`: News category
-- `date`: Publication date
-- `label`: 0 (Real) or 1 (Fake)
+## Pipeline
 
-## 🛠️ Tech Stack
+1. **Input:** article title and body are concatenated.
+2. **Preprocessing:** lowercasing, removal of HTML, URLs, emails, punctuation and digits, contraction expansion, stopword removal, WordNet lemmatisation.
+3. **Features:** TF-IDF with unigrams and bigrams (10,000 features, `min_df=2`, sublinear term frequency).
+4. **Split:** stratified 80/20 train/test split with `random_state=42`.
+5. **Models:**
+   - Logistic Regression
+   - Random Forest (200 trees, max depth 30)
+   - Gradient Boosting
+   - Linear SVM (probability-calibrated)
+   - Soft-voting ensemble of Logistic Regression, Random Forest and Gradient Boosting
+   - Bidirectional LSTM (optional, enabled with `--train-lstm`)
+6. **Evaluation:** accuracy, precision, recall, F1 and ROC-AUC. Results are written to `models/results.json` with a comparison plot.
 
-| Component | Technology |
-|-----------|------------|
-| **Programming Language** | Python 3.11 |
-| **Data Processing** | Pandas, NumPy |
-| **NLP** | NLTK |
-| **Machine Learning** | Scikit-learn |
-| **Visualization** | Matplotlib, Seaborn |
-| **Web Interface** | Streamlit |
-| **Model Serialization** | Joblib |
+## Explainability
 
-## 📁 Project Structure
+- **Per-prediction feature contributions:** SHAP (`LinearExplainer` / `TreeExplainer`), with a fallback to raw coefficient × TF-IDF value for linear models.
+- **Linguistic risk flags:** simple heuristics (exclamation ratio, capitalisation, a small list of sensational words, sentence length, vocabulary diversity). These are rules of thumb, not a validated detector.
 
-```
-fake-news-detection/
-├── app/                      # Web application
-│   └── app.py               # Streamlit frontend
-├── data/                     # Dataset directory (not tracked in git)
-├── models/                   # Trained models (not tracked in git)
-├── notebooks/                # Jupyter notebooks
-├── src/                      # Source code
-│   ├── preprocessing.py      # Text preprocessing
-│   ├── feature_extraction.py # TF-IDF feature extraction
-│   ├── models.py             # ML models
-│   ├── deep_learning.py      # Deep learning models (LSTM)
-│   ├── evaluation.py         # Model evaluation
-│   ├── train.py              # Training pipeline
-│   └── predict.py            # Prediction script
-├── .gitignore                # Git ignore rules
-├── requirements.txt          # Python dependencies
-└── README.md                 # This file
-```
+## Results
 
-## 🚀 Getting Started
+Random 80/20 split on ISOT (Logistic Regression and Random Forest, from the original training run):
 
-### Prerequisites
+| Model | Accuracy | Precision | Recall | F1 |
+|---|---|---|---|---|
+| Logistic Regression | 98.82% | 99.31% | 98.41% | 98.86% |
+| Random Forest | 99.68% | 99.68% | 99.70% | 99.69% |
 
-- Python 3.8 or higher
-- pip package manager
+Metrics for Gradient Boosting, Linear SVM, the ensemble and the LSTM are generated by `python src/train.py` and saved to `models/results.json`.
 
-### Installation
+## Limitations
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/your-username/fake-news-detection.git
-   cd fake-news-detection
-   ```
+- **Single dataset, random split.** The test set comes from the same distribution as the training set, so these scores say little about performance on news from other sources.
+- **Possible source artefacts.** In ISOT, the real articles come from one publisher, and publisher-specific cues (for example, a news-agency dateline at the start of an article) can let a model learn the source rather than the truthfulness. The preprocessing here does not remove such cues, so the scores above are likely optimistic. This has not yet been tested.
+- **The risk flags are heuristics** and have not been evaluated against labelled data.
+- This project classifies writing patterns in one dataset. It does not verify facts and should not be used for real content moderation.
 
-2. **Create a virtual environment (optional but recommended)**:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
+### Planned evaluation
 
-3. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+- [ ] Remove publisher cues (dateline, agency name) and re-evaluate
+- [ ] Evaluate the trained models on a different fake-news dataset
+- [ ] Report the drop in accuracy, and inspect SHAP contributions on misclassified articles
 
-### Dataset Preparation
+## Setup
 
-1. Download the ISOT Fake News Dataset
-2. Place `True.csv` and `Fake.csv` in the `data/` directory
-
-### Training the Models
+Requires Python 3.10 or newer (developed with 3.11).
 
 ```bash
-python src/train.py
+git clone https://github.com/shashivardhan-m/fake-news-detection.git
+cd fake-news-detection
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
-This will:
-- Load and preprocess the dataset
-- Train both Logistic Regression and Random Forest models
-- Evaluate model performance
-- Save trained models to the `models/` directory
+NLTK data (stopwords, WordNet) downloads automatically into `nltk_data/` on first run.
 
-### Running the Web Application
+## Usage
+
+**Train** (place `True.csv` and `Fake.csv` in the repository root first):
+
+```bash
+python src/train.py                       # classical models + ensemble
+python src/train.py --sample 5000         # faster run on a random subset
+python src/train.py --train-lstm --lstm-epochs 5
+```
+
+**Predict from the command line** (requires trained models):
+
+```bash
+python src/predict.py "Your article text here" --model ensemble --explain
+```
+
+Available models: `logistic_regression`, `random_forest`, `gradient_boosting`, `svm`, `ensemble`.
+
+**Web app** (requires trained models):
 
 ```bash
 streamlit run app/app.py
 ```
 
-The application will open in your browser at `http://localhost:8501`
+The app has four tabs: Analyze, Compare Models, Analytics and About.
 
-### Command-Line Prediction
+## Project structure
 
-```bash
-python src/predict.py "Your news article text here"
+```
+fake-news-detection/
+├── app/
+│   └── app.py                  # Streamlit interface
+├── src/
+│   ├── preprocessing.py        # Text cleaning
+│   ├── feature_extraction.py   # TF-IDF
+│   ├── models.py               # Classical models and ensemble
+│   ├── deep_learning.py        # BiLSTM
+│   ├── explainability.py       # SHAP / coefficient explanations
+│   ├── linguistic_features.py  # Heuristic risk flags
+│   ├── evaluation.py           # Metrics
+│   ├── train.py                # Training pipeline
+│   └── predict.py              # Command-line prediction
+├── requirements.txt
+└── README.md
 ```
 
-## 📈 Model Performance
+`True.csv`, `Fake.csv` and the `models/` directory are created locally and are git-ignored.
 
-| Model               | Accuracy | Precision | Recall | F1-Score |
-|---------------------|----------|-----------|--------|----------|
-| Logistic Regression | 98.82%   | 99.31%    | 98.41% | 98.86%   |
-| Random Forest       | 99.68%   | 99.68%    | 99.70% | 99.69%   |
+## Acknowledgements
 
-## 🎯 Usage Examples
-
-### Web Interface
-
-1. Go to the **Predict** tab
-2. Select a model (Logistic Regression or Random Forest)
-3. Paste your news article text
-4. Click "Check News"
-5. View the prediction and confidence scores
-
-### Model Comparison
-
-Visit the **Model Comparison** tab to see:
-- Detailed performance metrics table
-- Interactive bar charts comparing all models
-- Visualizations of accuracy, precision, recall, and F1-score
-
-## 🔮 Future Improvements
-
-- [ ] Implement BERT and other transformer models
-- [ ] Add explainable AI (SHAP/LIME) for predictions
-- [ ] Support for multiple languages
-- [ ] Real-time news scraping
-- [ ] Docker containerization
-- [ ] Cloud deployment (AWS, GCP, Azure)
-- [ ] API endpoint for integration with other systems
-- [ ] Batch processing for multiple articles
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- ISOT Fake News Dataset
-- Scikit-learn documentation
-- Streamlit community
-- NLTK project
-
-## 📞 Contact
-
-For questions or feedback about this project, please open an issue on GitHub.
-
----
-
-**Made with ❤️ for AI/ML portfolio projects**
-
+ISOT Fake News Dataset (University of Victoria), scikit-learn, NLTK, SHAP, TensorFlow and Streamlit.
