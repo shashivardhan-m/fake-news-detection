@@ -23,11 +23,15 @@ wheels/
 env/
 venv/
 ENV/
-data/
 models/
 nltk_data/
-*.csv
 *.h5
+*.keras
+*.pt
 *.joblib
+True*.csv
+Fake*.csv
 .DS_Store
+!data/sample_isot.csv
+!data/external_benchmark.csv
 
