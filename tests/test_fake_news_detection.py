@@ -9,14 +9,17 @@ from sklearn.linear_model import LogisticRegression
 # Add src to sys.path
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src'))
 
-from deep_learning import LSTMModel, TransformerModel
+from dataset_audit import audit_duplicates_and_contamination, audit_reuters_cues_exact, clean_and_deduplicate_dataset
+from deep_learning import DistilBERTModel, LSTMModel, TransformerModel
 from evaluation import ModelEvaluator
 from explainability import explain_prediction_breakdown
+from external_eval import wilson_score_interval, bootstrap_metric_ci
 from feature_extraction import FeatureExtractor
 from linguistic_features import analyze_text, evaluate_heuristic_risk_flags, get_risk_flags
 from models import FakeNewsModel
 from predict import check_input_sufficiency, check_publisher_cues_in_text, predict_news
 from preprocessing import TextPreprocessor, strip_publisher_artifacts
+from publisher_held_out import run_publisher_held_out_experiment
 
 
 # ── 1. Empty Input Tests ──────────────────────────────────────────────────────
@@ -284,3 +287,80 @@ def test_heuristic_risk_flags_empirical_evaluation():
     assert 'has_exclamation_flag' in flag_eval
     assert 'any_flag' in flag_eval
     assert flag_eval['any_flag']['fake_trigger_rate'] >= 0.5
+
+
+# ── 10. Research Validation & Audit Tests ────────────────────────────────────
+
+def test_exact_reuters_cues_audit():
+    df = pd.DataFrame({
+        'text': [
+            "WASHINGTON (Reuters) - Senate passed budget resolution.",
+            "LONDON (Reuters) - Foreign office issued advisory.",
+            "Normal independent article with no dateline at all.",
+            "SHOCKING: Fake news website article with conspiracy claims.",
+        ],
+        'label': [0, 0, 0, 1],
+    })
+    audit = audit_reuters_cues_exact(df)
+    assert audit['real_count'] == 3
+    assert audit['fake_count'] == 1
+    assert audit['real_with_exact_dateline']['count'] == 2
+    assert audit['fake_with_exact_dateline']['count'] == 0
+
+
+def test_deduplication_and_near_duplicates():
+    df = pd.DataFrame({
+        'text': [
+            "The Federal Reserve kept interest rates steady on Wednesday.",
+            "The Federal Reserve kept interest rates steady on Wednesday.",  # exact duplicate
+            "The Federal Reserve kept interest rates steady on Wednesday following talks.",  # near duplicate
+            "Completely distinct article about marine biodiversity in the Pacific ocean.",
+        ],
+        'label': [0, 0, 0, 1],
+    })
+    cleaned_df, stats = clean_and_deduplicate_dataset(df, drop_near_duplicates=True, threshold=0.85)
+    assert stats['removed_count'] >= 1
+    assert len(cleaned_df) < len(df)
+
+
+def test_wilson_score_interval_bounds():
+    low, high = wilson_score_interval(16, 20, confidence=0.95)
+    assert 0.0 <= low <= 0.8 <= high <= 1.0
+    assert round(low, 2) >= 0.55
+    assert round(high, 2) <= 0.95
+
+
+def test_publisher_held_out_lopo_cv():
+    df = pd.DataFrame({
+        'text': [
+            "Central bank reports inflation target achieved.",
+            "Government minister discusses public transport expansion.",
+            "Astronomers discover distant exoplanet in habitable orbit.",
+            "Scientists document new marine organisms in deep ocean trench.",
+            "SHOCKING: Microchips hidden in grocery scanners conspiracy!",
+            "BOMBSHELL: Hidden bunker contains deleted secret documents!",
+        ],
+        'label': [0, 0, 0, 0, 1, 1],
+        'publisher': ['BBC', 'BBC', 'AP', 'AP', 'ConspiracyBlog', 'ClickbaitMedia'],
+    })
+    res = run_publisher_held_out_experiment(df, publisher_column='publisher')
+    assert 'standard_random_split_cv' in res
+    assert 'publisher_held_out_lopo_cv' in res
+    assert len(res['per_held_out_publisher_results']) == 4
+
+
+def test_distilbert_transformer_architecture():
+    texts = [
+        "President announces major fiscal legislation in capital.",
+        "Outrageous secret conspiracy unmasked by internet sleuths!",
+    ] * 4
+    labels = [0, 1] * 4
+    model = DistilBERTModel(max_words=100, max_len=30, embedding_dim=32, nhead=2, num_layers=1)
+    model.fit(texts, labels, epochs=1, batch_size=4, verbose=False)
+
+    preds = model.predict(texts[:2])
+    probs = model.predict_proba(texts[:2])
+    assert len(preds) == 2
+    assert probs.shape == (2, 2)
+    assert np.allclose(probs.sum(axis=1), 1.0, atol=1e-5)
+

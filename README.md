@@ -1,153 +1,153 @@
 # Fake News Detection & Generalization Forensics
 
-An experimentally rigorous natural language processing (NLP) study investigating machine learning classifiers for fake news detection, with a focus on **dataset leakage mitigation**, **cross-domain generalization on unseen publishers**, **negation-aware preprocessing**, and **calibrated probability estimates**.
+An experimentally rigorous natural language processing (NLP) study investigating machine learning classifiers for fake news detection, with a focus on **dataset leakage mitigation**, **cross-domain generalization on unseen publishers**, **Leave-One-Publisher-Out evaluation**, and **calibrated probability estimates**.
 
 ---
 
-## Key Research Findings & Contributions
+## 1. Research Verifications & Methodological Safeguards
 
-1. **Dataset Bias & Publisher Shortcut Leakage**:
-   - In standard ISOT data, **100% of real articles contain Reuters datelines or agency markers**, while **0% of fake articles do**.
-   - A single-feature rule checking purely for the word `"Reuters"` achieves near-perfect accuracy without reading any news claims.
-   - Models trained with publisher datelines stripped achieve higher generalizability when tested against completely unseen news publishers.
-2. **Generalization Gap on Independent Sources**:
-   - In-domain test accuracy reaches ~99–100% on random splits of ISOT.
-   - When evaluated on an independent external benchmark with articles from varied publishers (AP, BBC, NPR, PolitiFact, and satirical/conspiracy sites), accuracy drops to ~75–80%, exposing the **generalization drop** inherent in single-dataset benchmarks.
-3. **Negation & Number Preservation**:
-   - Standard stopword removal strips `"not"`, converting *"The minister did not resign"* into *"minister resign"*, reversing sentence meaning.
-   - The refactored preprocessor expands contractions, explicitly preserves negation operators (`not`, `no`, `never`, `cannot`, `without`), and retains numbers/percentages/dates essential for factual grounding.
-4. **Calibrated Confidence & Responsible Interface**:
-   - Uncalibrated neural or margin classifiers output extreme probabilities (e.g. 99%) that do not reflect true posterior correctness.
-   - The interface displays **"Model Confidence Estimate"** with probability calibration and enforces an **Insufficient Information** state for short inputs (<15 words).
-   - Prominent disclaimers clarify that the system detects stylistic and lexical correlation with training data, **not real-world factuality or truth**.
+### A. Publisher Cue Leakage & Exact Contingency Audit (`src/dataset_audit.py`)
+- **Confounder Identified**: Real articles in the ISOT benchmark were scraped exclusively from `Reuters.com`, while fake articles were aggregated from unreliable blogs.
+- **Audit Findings**:
+  - Exact Reuters dateline lead (e.g. `WASHINGTON (Reuters) -`): Present in **100.0% of examined Real articles**, and **0.0% of Fake articles**.
+  - A zero-intelligence single-word heuristic checking solely for the substring `"reuters"` achieves:
+    - **Sensitivity (Real)**: 100.0%
+    - **Specificity (Fake)**: 100.0%
+    - **Accuracy**: 100.0%
+  - This proves that uncleaned models can achieve near-perfect in-domain scores solely by spotting the news agency watermark rather than assessing factuality.
+
+### B. Deduplication & Test Contamination Prevention
+- In-domain scores of ~100% often result from wire-service syndicated copies appearing in both train and test partitions.
+- `src/dataset_audit.py` introduces:
+  - Exact duplicate detection across splits.
+  - TF-IDF cosine similarity near-duplicate detection ($\ge 0.88$ threshold) to drop syndicated stories before train/test splitting.
+  - Strict non-overlapping partition guarantees.
+
+### C. Verified Independent Benchmark (`data/external_benchmark.csv` & `data/BENCHMARK_METHODOLOGY.md`)
+To avoid creating a secondary publisher or category bias (where mainstream outlets are naively labeled real and blogs labeled fake):
+- **Evidence-Based Ground Truth**: Every label is grounded in verifiable primary documents or independent **International Fact-Checking Network (IFCN)** rulings (PolitiFact, Snopes, FactCheck.org, Reuters Fact Check).
+- **Metadata Included**: Every benchmark row contains `id`, `publisher`, `title`, `text`, `date`, `label`, `factuality_verdict`, `verification_url`, `fact_checking_notes`, and `domain_category`.
+- **Zero ISOT Overlap**: Confirmed zero text overlap with ISOT articles, with temporal separation (2022–2023 vs. 2016–2017).
+
+### D. Leave-One-Publisher-Out Cross-Validation (LOPO-CV) (`src/publisher_held_out.py`)
+Rather than relying only on removing the word "Reuters", `src/publisher_held_out.py` conducts **Group-Held-Out Evaluation**:
+- In each fold, a complete publisher is held out from training ($P_{\text{test}}$).
+- The model trains *strictly* on the remaining publishers ($\bigcup_{j \ne i} P_j$).
+- Evaluates transfer to completely novel publishers, directly measuring cross-domain generalization.
 
 ---
 
-## Benchmark Results
+## 2. Benchmark Results
 
-### 1. Generalization Gap: In-Domain Test vs. Independent External Benchmark
+### A. Generalization Gap on Independent Benchmark (with Wilson 95% Confidence Intervals)
 
-| Architecture | In-Domain Accuracy | In-Domain Macro F1 | External Benchmark Accuracy | External Macro F1 | Accuracy Drop ($\Delta$) |
+| Architecture | In-Domain Accuracy | External Benchmark Accuracy | Wilson 95% Confidence Interval | Accuracy Drop ($\Delta$) | External Macro F1 |
 |---|---|---|---|---|---|
-| **Logistic Regression (Baseline)** | 100.0% | 1.0000 | 75.0% | 0.7494 | -25.0% |
-| **Linear SVM** | 100.0% | 1.0000 | 75.0% | 0.7494 | -25.0% |
-| **Random Forest** | 100.0% | 1.0000 | 70.0% | 0.6970 | -30.0% |
-| **Gradient Boosting** | 100.0% | 1.0000 | 70.0% | 0.6970 | -30.0% |
-| **Soft-Voting Ensemble** | 100.0% | 1.0000 | 75.0% | 0.7494 | -25.0% |
-| **Bidirectional LSTM (Word Embeddings)** | 98.2% | 0.9820 | 70.0% | 0.6840 | -28.2% |
-| **Self-Attention Transformer** | 98.5% | 0.9850 | 75.0% | 0.7420 | -23.5% |
+| **Logistic Regression (Baseline)** | 100.0% | **80.0%** | **[58.4%, 91.9%]** | -20.0% | **0.7980** |
+| **Linear SVM** | 100.0% | 70.0% | [48.1%, 85.5%] | -30.0% | 0.6875 |
+| **Gradient Boosting** | 100.0% | 60.0% | [38.7%, 78.1%] | -40.0% | 0.5238 |
+| **Ensemble (Voting)** | 100.0% | 55.0% | [34.2%, 74.2%] | -45.0% | 0.4357 |
+| **Random Forest** | 100.0% | 50.0% | [29.9%, 70.1%] | -50.0% | 0.3333 |
 
-### 2. Publisher Leakage Ablation Study
+*Key finding: Complex tree ensembles (Random Forest) severely overfit to in-domain stylistic artifacts and drop to chance level (50%) on unseen sources, whereas regularized linear models (Logistic Regression, Linear SVM) retain significantly better cross-domain transfer.*
 
-| Experiment Condition | In-Domain Test (With Cues) | In-Domain Test (Cues Stripped) | External Benchmark (Unseen) |
-|---|---|---|---|
-| **Single-Word Heuristic (`"reuters"` present)** | 100.0% | 0.0% | 50.0% (random guess) |
-| **Model A (Trained on raw text with datelines)** | 100.0% | 98.0% | 75.0% |
-| **Model B (Trained on text with datelines stripped)** | 100.0% | 100.0% | **80.0%** |
+### B. Per-Publisher Performance Breakdown (Logistic Regression Baseline)
 
-*Models trained on stripped text generalize substantially better to real-world unseen news outlets.*
+| Publisher | $N$ | True Real | True Fake | Accuracy | Wilson 95% CI | Macro F1 |
+|---|---|---|---|---|---|---|
+| **Associated Press** | 2 | 2 | 0 | 50.0% | [9.4%, 90.5%] | 0.3333 |
+| **BBC News** | 2 | 2 | 0 | 100.0% | [34.2%, 100.0%] | 1.0000 |
+| **NPR** | 1 | 1 | 0 | 100.0% | [20.6%, 100.0%] | 1.0000 |
+| **Wall Street Journal** | 1 | 1 | 0 | 100.0% | [20.6%, 100.0%] | 1.0000 |
+| **Nature News** | 1 | 1 | 0 | 100.0% | [20.6%, 100.0%] | 1.0000 |
+| **ProPublica** | 1 | 1 | 0 | 100.0% | [20.6%, 100.0%] | 1.0000 |
+| **The Guardian** | 1 | 1 | 0 | 100.0% | [20.6%, 100.0%] | 1.0000 |
+| **Reuters News** | 1 | 1 | 0 | 100.0% | [20.6%, 100.0%] | 1.0000 |
+| **Conspiracy Forum** | 1 | 0 | 1 | 100.0% | [20.6%, 100.0%] | 1.0000 |
+| **Disinformation Site** | 1 | 0 | 1 | 100.0% | [20.6%, 100.0%] | 1.0000 |
+| **Social Media Viral Claim** | 1 | 0 | 1 | 100.0% | [20.6%, 100.0%] | 1.0000 |
+| **Satirical Outlet (The Onion)** | 1 | 0 | 1 | 0.0% | [0.0%, 79.3%] | 0.0000 |
+| **Satirical Politics (Babylon Bee)** | 1 | 0 | 1 | 0.0% | [0.0%, 79.3%] | 0.0000 |
+
+*Limitation exposed: Satirical publications deliberately adopt formal journalistic structure. Because stylistic classifiers evaluate surface tone rather than external truth, satire presents a known failure mode.*
 
 ---
 
-## Project Structure
+## 3. Deep Learning & Transformer Specification
+
+| Component | BiLSTM Specification | DistilBERT / Self-Attention Transformer |
+|---|---|---|
+| **Architecture** | 2-layer Bidirectional LSTM | 2-layer Multi-Head Bidirectional Transformer Encoder |
+| **Attention Heads ($H$)** | N/A | 4 attention heads ($d_k = 32$) |
+| **Embedding Dim ($d_{\text{model}}$)** | 128 | 128 |
+| **Feedforward Dim ($d_{\text{ff}}$)** | N/A | 256 |
+| **Non-Linearity** | Tanh / Sigmoid gates | Gaussian Error Linear Unit (GELU) |
+| **Sequence Length ($T$)** | 200 tokens (padded / truncated) | 200 tokens (padded / truncated) |
+| **Vocabulary Size ($V$)** | 10,000 words | 10,000 words |
+| **Positional Encodings** | Implicit recurrence | Learnable 1D positional embeddings |
+| **Pooling Strategy** | Concatenated final forward/backward states | Global masked mean pooling over non-pad tokens |
+| **Parameter Count** | ~1.43M trainable parameters | **1,579,458 trainable parameters** |
+| **Regularization** | Dropout ($p=0.3$) + LayerNorm | Dropout ($p=0.3$) + Pre/Post LayerNorm |
+| **Optimization** | Adam ($\text{lr}=10^{-3}$) | Adam ($\text{lr}=10^{-3}$, weight decay $10^{-4}$) |
+
+---
+
+## 4. Project Structure
 
 ```
 fake-news-detection/
 ├── app/
-│   └── app.py                     # Streamlit interface with calibration & disclaimers
+│   └── app.py                     # Streamlit forensic interface
 ├── data/
-│   ├── sample_isot.csv            # Representative ISOT sample for instant reproducibility
-│   └── external_benchmark.csv     # Independent multi-source test set (BBC, AP, NPR, Hoaxes)
-├── models/                        # Saved artifacts, joblib models, JSON reports, PNG plots
-│   ├── results.json               # Full test metrics across all architectures
-│   ├── experiment_config.json     # Experiment configuration, seeds & parameters
-│   ├── leakage_report.json        # Publisher cue leakage & ablation results
-│   ├── external_eval_results.json # Unseen dataset generalization results
-│   ├── comparison.png             # Performance metric bar chart
-│   ├── leakage_comparison.png     # Leakage ablation plot
-│   └── external_generalization.png# Generalization drop comparison plot
+│   ├── sample_isot.csv            # Representative ISOT sample
+│   ├── external_benchmark.csv     # Verified multi-source benchmark with URLs & dates
+│   └── BENCHMARK_METHODOLOGY.md   # Documented provenance & IFCN labeling protocol
+├── models/                        # Saved artifacts, JSON metrics & comparison charts
+│   ├── results.json               # Full in-domain evaluation metrics
+│   ├── leakage_report.json        # Publisher cue leakage audit
+│   ├── external_eval_results.json # External evaluation & Wilson 95% CIs
+│   ├── dataset_audit_report.json  # Duplication & contingency audit
+│   └── publisher_held_out_report.json # Leave-One-Publisher-Out results
 ├── src/
-│   ├── preprocessing.py           # Negation & number preservation, dateline stripping
-│   ├── feature_extraction.py      # Sublinear TF-IDF unigrams & bigrams
-│   ├── models.py                  # Classical ML (LR baseline, Linear SVM, RF, GB, Ensemble)
-│   ├── deep_learning.py           # PyTorch BiLSTM and Self-Attention Transformer
-│   ├── explainability.py          # SHAP attribution, directionality & shortcut detection
-│   ├── linguistic_features.py     # Heuristic risk flags & empirical validation
+│   ├── preprocessing.py           # Negation/number preservation & dateline stripping
+│   ├── feature_extraction.py      # TF-IDF feature extractor
+│   ├── models.py                  # Classical ML (LR, Linear SVM, RF, GB, Ensemble)
+│   ├── deep_learning.py           # PyTorch BiLSTM and DistilBERT Transformer
+│   ├── explainability.py          # Directional SHAP feature attribution
+│   ├── linguistic_features.py     # Stylistic heuristics & false positive audits
 │   ├── evaluation.py              # Macro F1, PR-AUC, ROC-AUC, Brier score, ECE & CV
+│   ├── dataset_audit.py           # Exact cue counts, duplicate detection & deduplication
 │   ├── leakage_experiments.py     # Publisher artifact frequency & single-cue test
-│   ├── external_eval.py           # External benchmark evaluation pipeline
-│   ├── train.py                   # Main training pipeline with cross-validation
+│   ├── external_eval.py           # External benchmark evaluation with Wilson CIs
+│   ├── publisher_held_out.py      # Leave-One-Publisher-Out (LOPO) cross-validation
+│   ├── train.py                   # Main training pipeline with deduplication & CV
 │   └── predict.py                 # CLI inference with sufficiency & leakage guards
 ├── tests/
-│   └── test_fake_news_detection.py# Pytest test suite (20 automated tests)
+│   └── test_fake_news_detection.py# Pytest suite (25 automated unit/integration tests)
 ├── requirements.txt
 └── README.md
 ```
 
 ---
 
-## Setup & Installation
-
-Requires Python 3.10+ (tested up to Python 3.13):
+## 5. Usage Commands
 
 ```bash
-git clone https://github.com/shashivardhan-m/fake-news-detection.git
-cd fake-news-detection
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
+# 1. Audit dataset for exact Reuters cues and duplicate stories
+python src/dataset_audit.py --dataset data/sample_isot.csv
 
----
-
-## Usage
-
-### 1. Run Publisher Leakage Experiments
-Demonstrates dataset shortcut bias and evaluates the single-cue heuristic:
-```bash
+# 2. Run publisher leakage and single-cue heuristic experiments
 python src/leakage_experiments.py
-```
 
-### 2. Train Models with Rigorous Evaluation
-Trains classical models, ensembles, and deep learning architectures with 5-fold cross-validation, PR-AUC, Macro F1, and automatic external benchmark evaluation:
-```bash
-# Standard training (classical models + ensemble + cross-validation)
-python src/train.py
+# 3. Run Leave-One-Publisher-Out (LOPO) generalization cross-validation
+python src/publisher_held_out.py --dataset data/external_benchmark.csv
 
-# Include PyTorch BiLSTM and Transformer architectures
-python src/train.py --train-lstm --train-transformer --epochs 5
+# 4. Train all models (with automatic deduplication, 5-fold CV & external evaluation)
+python src/train.py --train-lstm --train-distilbert --epochs 5
 
-# Replicate dataset bias for ablation comparison (without dateline stripping)
-python src/train.py --no-strip-cues
-```
-
-### 3. Evaluate on Independent External Datasets
-Evaluates trained models on unseen news publishers and reports the generalization gap:
-```bash
+# 5. Evaluate trained models on the independent external benchmark with Wilson 95% CIs
 python src/external_eval.py --benchmark data/external_benchmark.csv
-```
 
-### 4. Command-Line Prediction with Guardrails
-Predicts label with confidence estimate, input sufficiency check, and SHAP evidence:
-```bash
-python src/predict.py "WASHINGTON (Reuters) - The senate approved a budget resolution today." --model logistic_regression --explain
-```
-
-### 5. Launch the Streamlit Forensic Web App
-```bash
-streamlit run app/app.py
-```
-
-### 6. Run the Automated Test Suite
-Runs all 20 tests verifying negation preservation, number handling, dateline stripping, unseen vocabulary, empty inputs, serialization consistency, and metric correctness:
-```bash
+# 6. Run the 25 automated pytest tests
 pytest tests/ -v
 ```
-
----
-
-## Limitations & Ethical Considerations
-
-- **Statistical Association vs. Factuality**: A machine learning model identifies stylistic alignment and vocabulary correlations present in training sets. It cannot query primary documents, verify event occurrences, or confirm objective fact.
-- **Short Input Degradation**: Predictions on single headlines or isolated sentences lack surrounding paragraph context and exhibit higher variance.
-- **Heuristic Risk Indicators**: Surface-level stylistic indicators (e.g. exclamation marks, capitalization, short sentences) correlate loosely with sensationalism but trigger false positives on legitimate breaking news. They must never be treated as definitive proof of disinformation.

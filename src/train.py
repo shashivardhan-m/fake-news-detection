@@ -12,6 +12,7 @@ from evaluation import ModelEvaluator
 from feature_extraction import FeatureExtractor
 from models import FakeNewsModel, MODEL_CONFIGS
 from preprocessing import TextPreprocessor
+from dataset_audit import clean_and_deduplicate_dataset
 
 
 def load_dataset(project_dir, sample_size=None, random_state=42):
@@ -238,6 +239,8 @@ def main():
     parser = argparse.ArgumentParser(description='Train fake news detection models with rigorous evaluation')
     parser.add_argument('--sample', type=int, default=None, help='Use a random subset for faster training')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
+    parser.add_argument('--deduplicate', action='store_true', default=True, help='Deduplicate dataset before splitting')
+    parser.add_argument('--no-deduplicate', action='store_false', dest='deduplicate', help='Do not drop duplicate articles')
     parser.add_argument('--strip-cues', action='store_true', default=True, help='Strip publisher datelines and source artifacts')
     parser.add_argument('--no-strip-cues', action='store_false', dest='strip_cues', help='Keep publisher cues (to replicate baseline bias)')
     parser.add_argument('--cv', action='store_true', default=True, help='Run k-fold cross validation')
@@ -260,6 +263,11 @@ def main():
 
     # 1. Load dataset
     df = load_dataset(project_dir, sample_size=args.sample, random_state=args.seed)
+
+    if args.deduplicate:
+        print("Auditing and deduplicating dataset to prevent test-set contamination...")
+        df, dedup_stats = clean_and_deduplicate_dataset(df, text_column='text', label_column='label')
+        print(f"Deduplication complete: removed {dedup_stats['removed_count']} duplicate/near-duplicate articles. Unique clean sample: {len(df)}")
 
     # 2. Preprocessing
     print(f"Preprocessing text (Preserve negation: True, Preserve numbers: True, Strip cues: {args.strip_cues})...")

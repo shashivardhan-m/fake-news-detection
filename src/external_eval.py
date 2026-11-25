@@ -4,12 +4,50 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import scipy.stats as stats
 import seaborn as sns
+from sklearn.metrics import accuracy_score, f1_score, average_precision_score
 
 from evaluation import ModelEvaluator
 from feature_extraction import FeatureExtractor
 from models import FakeNewsModel, MODEL_CONFIGS
 from preprocessing import TextPreprocessor
+
+
+def wilson_score_interval(successes, total, confidence=0.95):
+    """
+    Computes Wilson score interval for binomial proportions.
+    Provides robust confidence bounds especially on small sample sizes (e.g. N=20).
+    """
+    if total == 0:
+        return 0.0, 0.0
+    z = stats.norm.ppf((1 + confidence) / 2)
+    p = successes / total
+    denominator = 1 + z**2 / total
+    centre = (p + z**2 / (2 * total)) / denominator
+    margin = (z * np.sqrt((p * (1 - p) + z**2 / (4 * total)) / total)) / denominator
+    return max(0.0, float(centre - margin)), min(1.0, float(centre + margin))
+
+
+def bootstrap_metric_ci(y_true, y_pred, metric_func, n_bootstraps=1000, confidence=0.95, seed=42):
+    """
+    Computes non-parametric bootstrap confidence interval for a metric.
+    """
+    rng = np.random.RandomState(seed)
+    scores = []
+    n = len(y_true)
+    for _ in range(n_bootstraps):
+        idx = rng.randint(0, n, n)
+        if len(np.unique(y_true[idx])) < 2:
+            continue
+        scores.append(metric_func(y_true[idx], y_pred[idx]))
+
+    if not scores:
+        return 0.0, 1.0
+
+    lower = float(np.percentile(scores, (1 - confidence) / 2 * 100))
+    upper = float(np.percentile(scores, (1 + confidence) / 2 * 100))
+    return round(lower, 4), round(upper, 4)
 
 
 def evaluate_on_external_dataset(
@@ -20,11 +58,13 @@ def evaluate_on_external_dataset(
     preprocessor,
     text_column='text',
     label_column='label',
-    source_column='source',
+    source_column='publisher',
 ):
     """
-    Evaluates a single model on an unseen external dataset,
-    providing overall metrics and source-level breakdown.
+    Evaluates a single model on an unseen external benchmark with:
+    - Wilson score confidence intervals for accuracy
+    - Non-parametric bootstrap intervals for Macro F1
+    - Per-publisher breakdown
     """
     texts = external_df[text_column].astype(str).tolist()
     y_true = external_df[label_column].values
@@ -38,17 +78,43 @@ def evaluate_on_external_dataset(
     evaluator = ModelEvaluator(y_true, y_pred, y_proba)
     metrics = evaluator.get_metrics()
 
-    # Per-source breakdown if source column is present
+    acc = metrics['accuracy']
+    n_total = len(y_true)
+    n_correct = int(np.sum(y_true == y_pred))
+
+    wilson_low, wilson_high = wilson_score_interval(n_correct, n_total)
+    macro_f1_func = lambda yt, yp: f1_score(yt, yp, average='macro', zero_division=0)
+    boot_f1_low, boot_f1_high = bootstrap_metric_ci(y_true, y_pred, macro_f1_func)
+
+    metrics['confidence_intervals'] = {
+        'accuracy_wilson_95ci': [round(wilson_low, 4), round(wilson_high, 4)],
+        'macro_f1_bootstrap_95ci': [boot_f1_low, boot_f1_high],
+        'sample_size': n_total,
+    }
+
+    # Per-publisher breakdown
+    publisher_col = source_column if source_column in external_df.columns else ('source' if 'source' in external_df.columns else None)
     source_breakdown = {}
-    if source_column in external_df.columns:
-        for src in external_df[source_column].unique():
-            idx = external_df[source_column] == src
+
+    if publisher_col:
+        for pub in sorted(external_df[publisher_col].unique()):
+            idx = external_df[publisher_col] == pub
             sub_true = y_true[idx]
             sub_pred = y_pred[idx]
-            source_breakdown[src] = {
-                'count': int(idx.sum()),
-                'accuracy': round(float(np.mean(sub_true == sub_pred)), 4),
-                'ground_truth': 'Fake' if sub_true[0] == 1 else 'Real',
+            sub_n = int(idx.sum())
+            sub_correct = int(np.sum(sub_true == sub_pred))
+            sub_acc = float(sub_correct / sub_n) if sub_n else 0.0
+            s_low, s_high = wilson_score_interval(sub_correct, sub_n)
+
+            source_breakdown[pub] = {
+                'sample_size': sub_n,
+                'real_count': int((sub_true == 0).sum()),
+                'fake_count': int((sub_true == 1).sum()),
+                'predicted_real': int((sub_pred == 0).sum()),
+                'predicted_fake': int((sub_pred == 1).sum()),
+                'accuracy': round(sub_acc, 4),
+                'wilson_95ci': [round(s_low, 4), round(s_high, 4)],
+                'macro_f1': round(float(f1_score(sub_true, sub_pred, average='macro', zero_division=0)), 4),
             }
 
     return {
@@ -75,12 +141,7 @@ def run_full_external_evaluation(project_dir, external_csv_path, strip_cues=True
     )
 
     external_df = pd.read_csv(external_csv_path)
-    if 'text' not in external_df.columns:
-        if 'title' in external_df.columns:
-            external_df['text'] = external_df['title'].astype(str)
-        else:
-            raise ValueError("External CSV must contain a 'text' column.")
-    elif 'title' in external_df.columns:
+    if 'title' in external_df.columns and 'text' in external_df.columns:
         external_df['text'] = external_df['title'].astype(str) + ' ' + external_df['text'].astype(str)
 
     in_domain_results = {}
@@ -108,8 +169,10 @@ def run_full_external_evaluation(project_dir, external_csv_path, strip_cues=True
         evaluation_report[display_name] = res
 
         ext_acc = res['metrics']['accuracy']
-        ext_macro_f1 = res['metrics']['macro_f1']
+        ci = res['metrics']['confidence_intervals']['accuracy_wilson_95ci']
+        ci_str = f"[{ci[0]:.1%}, {ci[1]:.1%}]"
 
+        ext_macro_f1 = res['metrics']['macro_f1']
         in_acc = in_domain_results.get(display_name, {}).get('accuracy', np.nan)
         in_macro_f1 = in_domain_results.get(display_name, {}).get('macro_f1', in_domain_results.get(display_name, {}).get('f1', np.nan))
 
@@ -120,6 +183,7 @@ def run_full_external_evaluation(project_dir, external_csv_path, strip_cues=True
             'Model': display_name,
             'In-Domain Acc': in_acc,
             'External Acc': ext_acc,
+            'External Acc (95% CI)': ci_str,
             'Accuracy Drop (Δ)': acc_drop,
             'In-Domain Macro F1': in_macro_f1,
             'External Macro F1': ext_macro_f1,
@@ -147,7 +211,7 @@ def plot_generalization_drop(summary_df, save_path):
 
     plt.xticks(x, summary_df['Model'], rotation=25, ha='right')
     plt.ylabel('Accuracy')
-    plt.ylim(0, 1.1)
+    plt.ylim(0, 1.15)
     plt.title('Generalization Gap: In-Domain Test vs Independent External Benchmark')
     plt.legend()
     plt.grid(axis='y', linestyle='--', alpha=0.5)
@@ -174,19 +238,35 @@ def main():
     if not os.path.exists(benchmark_path):
         raise FileNotFoundError(f"External benchmark not found at {benchmark_path}")
 
-    print(f"\n{'=' * 65}")
+    print(f"\n{'=' * 70}")
     print(f"EVALUATING MODELS ON INDEPENDENT EXTERNAL BENCHMARK")
-    print(f"Benchmark file: {benchmark_path}")
-    print(f"{'=' * 65}\n")
+    print(f"Benchmark: {benchmark_path}")
+    print(f"{'=' * 70}\n")
 
     report, summary_df = run_full_external_evaluation(
         project_dir, benchmark_path, strip_cues=not args.keep_cues
     )
 
-    print("--- Generalization Gap Summary ---")
-    print(summary_df.to_string(index=False))
+    print("--- Generalization Gap Summary (with Wilson 95% Confidence Intervals) ---")
+    print(summary_df[['Model', 'In-Domain Acc', 'External Acc', 'External Acc (95% CI)', 'Accuracy Drop (Δ)', 'External Macro F1']].to_string(index=False))
 
-    # Save outputs
+    # Print detailed per-publisher breakdown for the primary baseline
+    first_model = list(report.keys())[0]
+    print(f"\n--- Per-Publisher Performance Breakdown ({first_model}) ---")
+    src_data = report[first_model]['source_breakdown']
+    breakdown_rows = []
+    for pub, d in src_data.items():
+        breakdown_rows.append({
+            'Publisher': pub,
+            'N': d['sample_size'],
+            'True Real': d['real_count'],
+            'True Fake': d['fake_count'],
+            'Accuracy': f"{d['accuracy']:.1%}",
+            '95% CI': f"[{d['wilson_95ci'][0]:.1%}, {d['wilson_95ci'][1]:.1%}]",
+            'Macro F1': d['macro_f1'],
+        })
+    print(pd.DataFrame(breakdown_rows).to_string(index=False))
+
     out_json = os.path.join(models_dir, 'external_eval_results.json')
     with open(out_json, 'w') as f:
         json.dump(report, f, indent=2)
@@ -194,9 +274,8 @@ def main():
     plot_path = os.path.join(models_dir, 'external_generalization.png')
     plot_generalization_drop(summary_df, plot_path)
 
-    print(f"\nExternal evaluation complete!")
-    print(f"Full metrics saved to: {out_json}")
-    print(f"Comparison plot saved to: {plot_path}")
+    print(f"\nReport saved to: {out_json}")
+    print(f"Plot saved to: {plot_path}")
 
 
 if __name__ == '__main__':
