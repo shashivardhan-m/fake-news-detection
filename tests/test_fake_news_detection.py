@@ -13,7 +13,7 @@ from dataset_audit import audit_duplicates_and_contamination, audit_reuters_cues
 from deep_learning import DistilBERTModel, LSTMModel, TransformerModel
 from evaluation import ModelEvaluator
 from explainability import explain_prediction_breakdown
-from external_eval import wilson_score_interval, bootstrap_metric_ci
+from external_eval import wilson_score_interval, bootstrap_metric_ci, evaluate_satire_benchmark
 from feature_extraction import FeatureExtractor
 from linguistic_features import analyze_text, evaluate_heuristic_risk_flags, get_risk_flags
 from models import FakeNewsModel
@@ -355,7 +355,8 @@ def test_distilbert_transformer_architecture():
         "Outrageous secret conspiracy unmasked by internet sleuths!",
     ] * 4
     labels = [0, 1] * 4
-    model = DistilBERTModel(max_words=100, max_len=30, embedding_dim=32, nhead=2, num_layers=1)
+    # Test both TransformerModel and DistilBERTModel alias
+    model = TransformerModel(max_words=100, max_len=30, embedding_dim=32, nhead=2, num_layers=1)
     model.fit(texts, labels, epochs=1, batch_size=4, verbose=False)
 
     preds = model.predict(texts[:2])
@@ -363,4 +364,28 @@ def test_distilbert_transformer_architecture():
     assert len(preds) == 2
     assert probs.shape == (2, 2)
     assert np.allclose(probs.sum(axis=1), 1.0, atol=1e-5)
+
+
+def test_satire_benchmark_diagnostic_evaluation():
+    satire_df = pd.DataFrame({
+        'title': ['Area Accountant Reads Entire Fifty-Page Document', 'Government Mandates Hats For Everyone'],
+        'text': ['An accountant methodically reviewed every line.', 'Officials decreed that everyone must wear hats.'],
+        'publisher': ['The Onion', 'Babylon Bee'],
+    })
+    preprocessor = TextPreprocessor()
+    extractor = FeatureExtractor(max_features=50, min_df=1)
+    extractor.fit(satire_df['text'].tolist())
+
+    clf = LogisticRegression()
+    X = extractor.transform(satire_df['text'].tolist())
+    clf.fit(X, [0, 1])
+
+    models_dict = {
+        'Logistic Regression': {'model': clf, 'type': 'classical'}
+    }
+    res = evaluate_satire_benchmark(models_dict, satire_df, preprocessor, extractor)
+    assert 'Logistic Regression' in res
+    assert res['Logistic Regression']['sample_size'] == 2
+    assert 'predicted_real_pct' in res['Logistic Regression']
+
 

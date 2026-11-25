@@ -34,4 +34,5 @@ Fake*.csv
 .DS_Store
 !data/sample_isot.csv
 !data/external_benchmark.csv
+!data/satire_benchmark.csv
 

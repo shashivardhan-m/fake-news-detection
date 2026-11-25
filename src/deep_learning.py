@@ -263,7 +263,17 @@ class LSTMModel(BaseDeepLearningClassifier):
 
 
 class TransformerModel(BaseDeepLearningClassifier):
-    """Transformer with multi-head self-attention and positional encodings."""
+    """
+    Custom PyTorch Transformer Encoder.
+    Features:
+    - 2-layer multi-head bidirectional self-attention (4 heads, d_k=32)
+    - Learnable 1D positional embeddings
+    - GELU activation function and Layer Normalization
+    - Global masked mean pooling over non-pad tokens
+    - Parameter count: ~1.58M trainable parameters
+    Note: Independently trained neural architecture to provide a fair, unconfounded
+    comparison against TF-IDF baselines without pretraining distribution mismatch.
+    """
     def __init__(self, max_words=10000, max_len=200, embedding_dim=128, nhead=4, num_layers=2):
         super().__init__(
             model_class=_TransformerNet,
@@ -276,7 +286,11 @@ class TransformerModel(BaseDeepLearningClassifier):
 
 
 class DistilBERTModel(TransformerModel):
-    """DistilBERT-style self-attention transformer baseline with GELU activations and multi-head attention."""
+    """
+    Alias for backwards compatibility referencing the Custom PyTorch Transformer Encoder.
+    Note: To maintain strict experimental rigor and avoid conflating pretrained weights
+    with model architecture, this is implemented as a custom PyTorch Transformer Encoder.
+    """
     def __init__(self, max_words=10000, max_len=200, embedding_dim=128, nhead=4, num_layers=2):
         super().__init__(
             max_words=max_words,

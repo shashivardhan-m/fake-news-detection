@@ -172,12 +172,12 @@ def train_lstm_model(X_train_raw, X_test_raw, y_train, y_test, project_dir, epoc
 
 
 def train_transformer_model(X_train_raw, X_test_raw, y_train, y_test, project_dir, epochs=5):
-    from deep_learning import DistilBERTModel
+    from deep_learning import TransformerModel
 
     models_dir = os.path.join(project_dir, 'models')
-    print(f"\n{'=' * 55}\nTraining DistilBERT / Transformer Baseline...\n{'=' * 55}")
+    print(f"\n{'=' * 55}\nTraining Custom PyTorch Transformer Encoder Baseline...\n{'=' * 55}")
 
-    trans = DistilBERTModel(max_words=10000, max_len=200, embedding_dim=128, nhead=4, num_layers=2)
+    trans = TransformerModel(max_words=10000, max_len=200, embedding_dim=128, nhead=4, num_layers=2)
     trans.fit(X_train_raw.tolist(), y_train.values, epochs=epochs, batch_size=32)
 
     model_path = os.path.join(models_dir, 'transformer_model.pt')
@@ -189,15 +189,15 @@ def train_transformer_model(X_train_raw, X_test_raw, y_train, y_test, project_di
     evaluator = ModelEvaluator(y_test, y_pred, y_proba)
     metrics = evaluator.get_metrics()
 
-    print("\nTransformer Metrics:")
+    print("\nCustom Transformer Encoder Metrics:")
     for k in ['accuracy', 'macro_f1', 'f1', 'precision', 'recall', 'roc_auc', 'pr_auc', 'brier_score']:
         if k in metrics:
             print(f"  {k:15s}: {metrics[k]:.4f}")
 
     cm_path = os.path.join(models_dir, "cm_transformer.png")
-    evaluator.plot_confusion_matrix(save_path=cm_path, title="Confusion Matrix: Transformer")
+    evaluator.plot_confusion_matrix(save_path=cm_path, title="Confusion Matrix: Custom Transformer Encoder")
 
-    return {'Self-Attention Transformer': metrics}
+    return {'Custom Transformer Encoder': metrics, 'Self-Attention Transformer': metrics}
 
 
 def save_comparison_plot(results, project_dir):
@@ -246,7 +246,7 @@ def main():
     parser.add_argument('--cv', action='store_true', default=True, help='Run k-fold cross validation')
     parser.add_argument('--cv-folds', type=int, default=5, help='Number of folds for CV')
     parser.add_argument('--train-lstm', action='store_true', help='Train PyTorch BiLSTM model')
-    parser.add_argument('--train-transformer', '--train-distilbert', dest='train_transformer', action='store_true', help='Train DistilBERT / Transformer model')
+    parser.add_argument('--train-transformer', '--train-distilbert', dest='train_transformer', action='store_true', help='Train Custom PyTorch Transformer Encoder model')
     parser.add_argument('--epochs', type=int, default=5, help='Epochs for deep learning models')
     parser.add_argument('--external-benchmark', type=str, default='data/external_benchmark.csv', help='Path to external benchmark CSV')
     args = parser.parse_args()
