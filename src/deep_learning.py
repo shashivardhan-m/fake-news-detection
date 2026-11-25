@@ -94,12 +94,13 @@ class _TransformerNet(nn.Module):
             nhead=nhead,
             dim_feedforward=256,
             dropout=dropout,
+            activation='gelu',
             batch_first=True,
         )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.dropout = nn.Dropout(dropout)
         self.fc1 = nn.Linear(embedding_dim, 64)
-        self.relu = nn.ReLU()
+        self.activation = nn.GELU()
         self.fc2 = nn.Linear(64, 2)
 
     def forward(self, x):
@@ -111,7 +112,7 @@ class _TransformerNet(nn.Module):
         mask = (x != 0).unsqueeze(-1)
         sum_encoded = (encoded * mask).sum(dim=1)
         mean_pooled = sum_encoded / mask.sum(dim=1).clamp(min=1)
-        hidden = self.relu(self.fc1(self.dropout(mean_pooled)))
+        hidden = self.activation(self.fc1(self.dropout(mean_pooled)))
         logits = self.fc2(self.dropout(hidden))
         return logits
 
@@ -272,3 +273,16 @@ class TransformerModel(BaseDeepLearningClassifier):
             nhead=nhead,
             num_layers=num_layers,
         )
+
+
+class DistilBERTModel(TransformerModel):
+    """DistilBERT-style self-attention transformer baseline with GELU activations and multi-head attention."""
+    def __init__(self, max_words=10000, max_len=200, embedding_dim=128, nhead=4, num_layers=2):
+        super().__init__(
+            max_words=max_words,
+            max_len=max_len,
+            embedding_dim=embedding_dim,
+            nhead=nhead,
+            num_layers=num_layers,
+        )
+

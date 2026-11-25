@@ -20,6 +20,7 @@ MODEL_ALIASES = {
     'ensemble': 'ensemble',
     'lstm': 'lstm',
     'transformer': 'transformer',
+    'distilbert': 'transformer',
 }
 
 MIN_WORDS_THRESHOLD = 15

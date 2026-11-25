@@ -171,12 +171,12 @@ def train_lstm_model(X_train_raw, X_test_raw, y_train, y_test, project_dir, epoc
 
 
 def train_transformer_model(X_train_raw, X_test_raw, y_train, y_test, project_dir, epochs=5):
-    from deep_learning import TransformerModel
+    from deep_learning import DistilBERTModel
 
     models_dir = os.path.join(project_dir, 'models')
-    print(f"\n{'=' * 55}\nTraining Self-Attention Transformer Classifier...\n{'=' * 55}")
+    print(f"\n{'=' * 55}\nTraining DistilBERT / Transformer Baseline...\n{'=' * 55}")
 
-    trans = TransformerModel(max_words=10000, max_len=200, embedding_dim=128, nhead=4, num_layers=2)
+    trans = DistilBERTModel(max_words=10000, max_len=200, embedding_dim=128, nhead=4, num_layers=2)
     trans.fit(X_train_raw.tolist(), y_train.values, epochs=epochs, batch_size=32)
 
     model_path = os.path.join(models_dir, 'transformer_model.pt')
@@ -243,7 +243,7 @@ def main():
     parser.add_argument('--cv', action='store_true', default=True, help='Run k-fold cross validation')
     parser.add_argument('--cv-folds', type=int, default=5, help='Number of folds for CV')
     parser.add_argument('--train-lstm', action='store_true', help='Train PyTorch BiLSTM model')
-    parser.add_argument('--train-transformer', action='store_true', help='Train PyTorch Transformer model')
+    parser.add_argument('--train-transformer', '--train-distilbert', dest='train_transformer', action='store_true', help='Train DistilBERT / Transformer model')
     parser.add_argument('--epochs', type=int, default=5, help='Epochs for deep learning models')
     parser.add_argument('--external-benchmark', type=str, default='data/external_benchmark.csv', help='Path to external benchmark CSV')
     args = parser.parse_args()
